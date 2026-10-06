@@ -3619,6 +3619,12 @@ function startServer(cfg, state) {
     }
   });
 
+  // listen 失败（端口被占等）是异步 'error' 事件：无监听会变成未捕获异常直接崩进程，
+  // 这里先给一句明确的状态行再退出，面板里能看到原因而不是"神秘崩溃"。
+  server.on("error", (e) => {
+    logger.status(`http server failed: cannot listen :${cfg.port} (${(e && e.code) || (e && e.message) || e})`);
+    process.exit(1);
+  });
   server.listen(cfg.port, () => {
     logger.info(`http server listening on :${cfg.port} (/health /sub /kit /)`);
   });
@@ -3704,6 +3710,15 @@ async function main() {
   try {
     process.title = "node";
   } catch {}
+  // 全局兜底：漏网的未处理 rejection / 未捕获同步异常只记日志、不直接崩进程。
+  // 已知致命错误仍走各处的显式 process.exit(1)（fail-fast），这里只防"未知边缘异常"。
+  // 放在 main() 里而不是模块顶层：NIC_SKIP_MAIN=1 的测试 import 不受影响。
+  process.on("unhandledRejection", (reason) => {
+    logger.error(`unhandled rejection: ${(reason && reason.stack) || reason}`);
+  });
+  process.on("uncaughtException", (e) => {
+    logger.error(`uncaught exception: ${(e && e.stack) || e}`);
+  });
   let cfg;
   try {
     cfg = loadConfig();
@@ -4082,6 +4097,7 @@ if (process.env.NIC_SKIP_MAIN !== "1") {
 export {
   loadConfig,
   parseRequestUrl,
+  startServer,
   makeLineSplitter,
   watchLinkOutput,
   parseTempDomain,
